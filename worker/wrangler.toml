@@ -1,0 +1,10 @@
+name = "platform-demo-asset-status"
+main = "worker.js"
+compatibility_date = "2026-09-30"
+
+# Set these with `wrangler secret put`, never in this file:
+# CLOUDINARY_CLOUD_NAME
+# CLOUDINARY_API_KEY
+# CLOUDINARY_API_SECRET
+# Required: ALLOWED_ORIGIN (for example, https://lucasainsworth-cld.github.io)
+# Optional: DEMO_ASSET_FOLDER (for example, lifecycle-demo)

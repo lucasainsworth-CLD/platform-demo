@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Asset enrichment</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; font-family: Inter, Arial, sans-serif; }
+      .stage { position: relative; width: 100%; height: 100%; overflow: hidden; border: 1px solid rgba(117, 184, 255, .22); border-radius: 12px; background: radial-gradient(circle at 50% 48%, #10345a 0, #081c34 44%, #06172c 77%); }
+      .stage::before { content: ''; position: absolute; inset: 0; opacity: .35; background-image: linear-gradient(rgba(112,150,209,.12) 1px, transparent 1px), linear-gradient(90deg, rgba(112,150,209,.12) 1px, transparent 1px); background-size: 34px 34px; }
+      .empty, .loading { position: absolute; z-index: 5; inset: 0; display: grid; place-content: center; justify-items: center; gap: 12px; color: #b9cae0; text-align: center; font-size: 13px; }
+      .empty b { color: #fff; font-size: 16px; letter-spacing: -.01em; }
+      .empty span { max-width: 210px; color: #7f97b6; font-size: 11px; line-height: 1.55; }
+      .loading { display: none; font-size: 11px; color: #91b9e9; }
+      .spinner { width: 25px; height: 25px; border: 2px solid rgba(98,213,238,.25); border-top-color: #62d5ee; border-radius: 50%; animation: spin .8s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .asset { position: absolute; z-index: 1; inset: 0; overflow: hidden; opacity: 0; transition: opacity .35s ease; }
+      .asset img { width: 100%; height: 100%; object-fit: cover; }
+      .asset::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(3,14,31,.5), transparent 28%, transparent 72%, rgba(3,14,31,.5)); border: 1px solid rgba(182,228,255,.24); pointer-events: none; }
+      .leaders { position: absolute; z-index: 2; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+      .leaders line { stroke-width: 1; }
+      .callouts { position: absolute; z-index: 3; inset: 0; pointer-events: none; }
+      .callout { position: absolute; max-width: 118px; padding: 6px 8px; border: 1px solid rgba(111,192,239,.45); border-radius: 7px; background: rgba(5, 23, 45, .92); color: #e7f3ff; box-shadow: 0 7px 22px rgba(0,0,0,.15); font: 9px/1.15 ui-monospace, SFMono-Regular, Menlo, monospace; transition: transform 110ms ease-out, opacity .25s ease; }
+      .callout small { display: block; margin-bottom: 4px; color: #69d7ed; font: 8px Inter, Arial, sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+      .callout:nth-child(odd) { border-color: rgba(129, 134, 255, .48); }
+      .callout:nth-child(odd) small { color: #b4b7ff; }
+      .callout[data-type="metadata"] { border-color: rgba(170, 135, 255, .56); }
+      .callout[data-type="metadata"] small { color: #d2bcff; }
+      .callout.is-muted { opacity: 0; }
+      .cluster-controls { position: absolute; z-index: 4; bottom: 14px; left: 14px; display: flex; gap: 6px; }
+      .cluster-controls button { padding: 6px 9px; border: 1px solid rgba(157, 188, 225, .42); border-radius: 999px; background: rgba(5, 23, 45, .9); color: #9fb6d4; font: 9px Inter, Arial, sans-serif; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+      .cluster-controls button.active { border-color: #62d5ee; color: #e9f9ff; background: rgba(19, 93, 122, .85); }
+      .stage.ready .asset { opacity: 1; }
+      .stage.ready .empty, .stage.ready .loading { display: none; }
+      .stage.loading .empty { display: none; }
+      .stage.loading .loading { display: grid; }
+      .stage.empty .asset, .stage.empty .leaders, .stage.empty .callouts, .stage.empty .cluster-controls, .stage.loading .cluster-controls { display: none; }
+    </style>
+  </head>
+  <body>
+    <main id="stage" class="stage empty">
+      <div class="empty"><b>Upload an asset to enrich</b><span>Cloudinary will return its tags and metadata here.</span></div>
+      <div class="loading"><i class="spinner"></i><span>Reading live asset data…</span></div>
+      <div class="asset"><img id="asset-image" alt="Selected asset"></div>
+      <svg id="leaders" class="leaders" aria-hidden="true"></svg>
+      <div id="callouts" class="callouts"></div>
+      <div class="cluster-controls" aria-label="Enrichment data view">
+        <button class="active" data-view="all">All</button>
+        <button data-view="tag">Tags</button>
+        <button data-view="metadata">Metadata</button>
+      </div>
+    </main>
+    <script>
+      const stage = document.querySelector('#stage');
+      const assetImage = document.querySelector('#asset-image');
+      const callouts = document.querySelector('#callouts');
+      const leaders = document.querySelector('#leaders');
+      const controls = document.querySelector('.cluster-controls');
+      let items = [];
+      let activeView = 'all';
+
+      function displayValue(value) {
+        if (Array.isArray(value)) return value.join(', ');
+        if (value && typeof value === 'object') return JSON.stringify(value);
+        return String(value);
+      }
+
+      function makeItems(asset) {
+        const tags = (asset.tags || []).slice(0, 15).map((tag) => ({ type: 'tag', group: 'AI tag', value: tag }));
+        const metadata = Object.entries(asset.metadata || {}).map(([key, value]) => ({ type: 'metadata', group: key.replaceAll('_', ' '), value: displayValue(value) }));
+        const context = Object.entries(asset.context || {}).map(([key, value]) => ({ type: 'metadata', group: key.replaceAll('_', ' '), value: displayValue(value) }));
+        const structuredMetadata = [...metadata, ...context].slice(0, 10);
+        return [...tags, ...structuredMetadata];
+      }
+
+      function gridPositions(count, columns, xStart, xGap, yStart = 8, yGap = 18) {
+        return Array.from({ length: count }, (_, index) => [
+          xStart + (index % columns) * xGap,
+          yStart + Math.floor(index / columns) * yGap
+        ]);
+      }
+
+      function setView(view) {
+        activeView = view;
+        const nodes = [...callouts.children];
+        const tagNodes = nodes.filter((node) => node.dataset.type === 'tag');
+        const metadataNodes = nodes.filter((node) => node.dataset.type === 'metadata');
+        const visibleNodes = view === 'all' ? nodes : nodes.filter((node) => node.dataset.type === view);
+        const allTagPositions = gridPositions(tagNodes.length, 3, 2, 17);
+        const allMetadataPositions = gridPositions(metadataNodes.length, 2, 61, 18);
+        const clusterPositions = gridPositions(visibleNodes.length, 3, 16, 22, 24, 17);
+        nodes.forEach((node, index) => {
+          const visible = view === 'all' || node.dataset.type === view;
+          node.classList.toggle('is-muted', !visible);
+          if (visible) {
+            const position = view === 'all'
+              ? (node.dataset.type === 'tag' ? allTagPositions[tagNodes.indexOf(node)] : allMetadataPositions[metadataNodes.indexOf(node)])
+              : clusterPositions[visibleNodes.indexOf(node)];
+            node.style.left = `${position[0]}%`;
+            node.style.top = `${position[1]}%`;
+          }
+          leaders.querySelectorAll('line')[index].style.opacity = visible ? '1' : '0';
+        });
+        controls.querySelectorAll('button').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
+        updateMotion();
+      }
+
+      function render(asset) {
+        items = makeItems(asset);
+        callouts.replaceChildren();
+        leaders.replaceChildren();
+        items.forEach((item, index) => {
+          const node = document.createElement('div');
+          node.className = 'callout';
+          node.dataset.type = item.type;
+          node.style.left = '0';
+          node.style.top = '0';
+          const label = document.createElement('small');
+          label.textContent = item.group;
+          node.append(label, document.createTextNode(item.value));
+          callouts.append(node);
+          const gradient = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient');
+          gradient.id = `leader-gradient-${index}`;
+          gradient.setAttribute('gradientUnits', 'userSpaceOnUse');
+          const centerStop = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
+          centerStop.setAttribute('offset', '0%');
+          centerStop.setAttribute('stop-color', '#62d5ee');
+          centerStop.setAttribute('stop-opacity', '0');
+          const tagStop = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
+          tagStop.setAttribute('offset', '100%');
+          tagStop.setAttribute('stop-color', '#62d5ee');
+          tagStop.setAttribute('stop-opacity', '.9');
+          gradient.append(centerStop, tagStop);
+          leaders.append(gradient);
+          const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          line.setAttribute('stroke', `url(#leader-gradient-${index})`);
+          leaders.append(line);
+        });
+        setView(activeView);
+      }
+
+      function updateMotion(event) {
+        const bounds = stage.getBoundingClientRect();
+        const pointerX = event ? event.clientX - bounds.left : bounds.width / 2;
+        const pointerY = event ? event.clientY - bounds.top : bounds.height / 2;
+        [...callouts.children].forEach((node, index) => {
+          const nodeBounds = node.getBoundingClientRect();
+          const x = nodeBounds.left - bounds.left + nodeBounds.width / 2;
+          const y = nodeBounds.top - bounds.top + nodeBounds.height / 2;
+          const distance = Math.max(32, Math.hypot(x - pointerX, y - pointerY));
+          const magnitude = Math.min(28, 1100 / distance);
+          const offsetX = ((x - pointerX) / distance) * magnitude;
+          const offsetY = ((y - pointerY) / distance) * magnitude;
+          node.style.transform = `translate(${offsetX}px, ${offsetY}px)`;
+          const line = leaders.querySelectorAll('line')[index];
+          const gradient = leaders.querySelector(`#leader-gradient-${index}`);
+          const endX = x + offsetX;
+          const endY = y + offsetY;
+          const startX = bounds.width / 2;
+          const startY = bounds.height / 2;
+          line.setAttribute('x1', startX);
+          line.setAttribute('y1', startY);
+          line.setAttribute('x2', endX);
+          line.setAttribute('y2', endY);
+          gradient.setAttribute('x1', startX);
+          gradient.setAttribute('y1', startY);
+          gradient.setAttribute('x2', endX);
+          gradient.setAttribute('y2', endY);
+        });
+      }
+
+      stage.addEventListener('pointermove', updateMotion);
+      stage.addEventListener('pointerleave', () => updateMotion());
+      addEventListener('resize', () => updateMotion());
+      controls.addEventListener('click', (event) => {
+        const button = event.target.closest('button[data-view]');
+        if (button) setView(button.dataset.view);
+      });
+      addEventListener('message', (event) => {
+        if (event.origin !== location.origin) return;
+        const message = event.data || {};
+        if (!message.type?.startsWith('enrich:')) return;
+        if (message.type === 'enrich:empty') {
+          stage.className = 'stage empty';
+          return;
+        }
+        assetImage.src = message.imageUrl || '';
+        if (message.type === 'enrich:loading') {
+          stage.className = 'stage loading';
+          return;
+        }
+        render(message.asset || {});
+        stage.className = 'stage ready';
+      });
+    </script>
+  </body>
+</html>
