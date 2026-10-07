@@ -7,4 +7,5 @@ compatibility_date = "2026-09-30"
 # CLOUDINARY_API_KEY
 # CLOUDINARY_API_SECRET
 # Required: ALLOWED_ORIGIN (for example, https://lucasainsworth-cld.github.io)
+# Or use ALLOWED_ORIGINS for a comma-separated production + local allowlist.
 # Optional: DEMO_ASSET_FOLDER (for example, lifecycle-demo)

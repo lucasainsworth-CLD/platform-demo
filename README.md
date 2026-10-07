@@ -34,6 +34,6 @@ wrangler secret put DEMO_ASSET_FOLDER
 wrangler deploy
 ```
 
-Set `ALLOWED_ORIGIN` to the exact GitHub Pages origin (for example, `https://lucasainsworth-cld.github.io`). The Worker only accepts requests made from that origin and only resolves image assets by asset ID. Set `DEMO_ASSET_FOLDER` to the dedicated demo folder after the seed assets have been moved there. Then paste the deployed URL plus `/asset` into `window.LIFECYCLE_DEMO_CONFIG.assetEndpoint` in `index.html`.
+Set `ALLOWED_ORIGIN` to the exact GitHub Pages origin (for example, `https://lucasainsworth-cld.github.io`). For both production and local testing, use `ALLOWED_ORIGINS` instead, with a comma-separated allowlist such as `https://lucasainsworth-cld.github.io,http://localhost:8000`. The Worker only accepts requests made from an allowed origin and only resolves image assets by asset ID. Set `DEMO_ASSET_FOLDER` to the dedicated demo folder after the seed assets have been moved there. Then paste the deployed URL plus `/asset` into `window.LIFECYCLE_DEMO_CONFIG.assetEndpoint` in `index.html`.
 
 The Cloudinary API secret stays exclusively in the Worker. Never add it to `index.html`, the repository, or GitHub Pages settings.
